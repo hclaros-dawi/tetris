@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetris</title>
+    <style>
+        body {
+            background: rgb(104, 99, 99);
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            display: block;
+            margin: 20px auto;
+            background: #333;
+        }
+        #info {
+            margin-top: 10px;
+        }
+        p {
+            margin: 5px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin-top: 10px;
+            font-size: 16px;
+            background-color: #2a2929;
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #3e3c3c;
+        }
+        #proximaFichaCanvas {
+            background: #444;
+            margin: 0 auto;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Canvas para el tablero del Tetris -->
+    <canvas id="tetris" width="300" height="600"></canvas>
+    <!-- Contenedor para la información del juego -->
+    <div id="info">
+        <p>Puntuación: <span id="puntos">0</span></p>
+        <p>Nivel: <span id="nivel">1</span></p>
+        <canvas id="proximaFichaCanvas" width="120" height="120"></canvas>
+        <button id="aumentarNivel">Aumentar Nivel</button>
+    </div>
+
+    <script>
+        const canvas = document.querySelector('#tetris'); //Canvas donde se dibuja el tablero
+        const canvasProximaFicha = document.querySelector('#proximaFichaCanvas'); //Canvas donde se dibuja la próxima pieza
+        const botonAumentarNivel = document.querySelector('#aumentarNivel');
+        const lienzo = canvas.getContext("2d"); //Contexto de 2D para el canvas principal
+        const lienzoProximaFicha = canvasProximaFicha.getContext("2d"); // Contexto de 2D para el canvas de la próxima pieza
+    
+        //Dimensiones del tablero
+        const filas = 20;
+        const columnas = 10;
+        const tamanoCelda = 30;
+    
+        //Tamaño del canvas que contiene al tablero
+        canvas.width = tamanoCelda * columnas;
+        canvas.height = tamanoCelda * filas;
+    
+        //Para que las piezas se dibujen correctamente según tamaño de celda
+        //Es decir, que se dibujen a escala 30px
+        lienzo.scale(tamanoCelda, tamanoCelda);
+    
+        //Inicializamos tablero
+        //Las celdas están vacías (null)
+        const tablero = Array.from({ length: filas }, () => Array(columnas).fill(null));
+        
+        //Obtenemos elementos de puntuación y nivel
+        const puntuacionElement = document.querySelector('#puntos');
+        const nivelElement = document.querySelector('#nivel');
+       
+        //Se inicializa puntos a 0, nivel a 1...
+        let puntuacion = 0;
+        let nivel = 1;
+        let velocidad = 500; //Velocidad inicial del juego
+        let intervalo; //Almacena el intervalo que controla velocidad del juego a lo largo de los diferentes niveles
+    
+
+        //Creación objeto Pieza con sus propiedades
+        class Pieza {
+            constructor(nombre, forma, color) {
+                this.nombre = nombre; //
+                this.forma = forma;
+                this.color = color;
+            }
+        }
+
+        //Definición de piezas 
+        const piezas = [
+            new Pieza("pieza1", [[1, 1, 1, 1]], "cyan"),
+            new Pieza("pieza2", [[1, 1], [1, 1]], "yellow"),
+            new Pieza("pieza3", [[0, 1, 0], [1, 1, 1]], "purple"),
+            new Pieza("pieza4", [[0, 1, 1], [1, 1, 0]], "green"),
+            new Pieza("pieza5", [[1, 1, 0], [0, 1, 1]], "red"),
+            new Pieza("pieza6", [[1, 0], [1, 0], [1, 1]], "orange"),
+            new Pieza("pieza7", [[0, 1], [0, 1], [1, 1]], "blue")
+        ];
+    
+        let piezaActual = null; //Pieza que se mueve actualmente
+        let proximaPieza = null; //Pieza que aparecerá proximamente
+        let offsetX = 4; //En eje x, se inicia en el centro del tablero
+        let offsetY = 0; //En eje y, se inicia en la parte superior del tablero
+    
+        /*........FUNCIÓN PARA GENERAR PIEZA.......*/
+        //Genera una pieza aleatoria a partir del array "piezas"
+        function generarPieza() {
+            return piezas[Math.floor(Math.random() * piezas.length)];
+        }
+    
+
+        /*........FUNCIÓN PARA CHEQUEARCOLISIONES.......*/
+        //Verificamos si alguna parte de la pieza toca los límites del tablero
+        function chequearColisiones(pieza, x, y) {
+            return pieza.forma.some((row, dy) => //Itera sobre cada fila de la forma de la pieza
+                row.some((value, dx) => //Itera sobre cada columna de la fila
+                    value && (
+                        x + dx < 0 ||  //Si la pieza se mueve fuera del borde izquierdo
+                x + dx >= columnas ||  //Si la pieza se mueve fuera del borde derecho
+                y + dy >= filas ||  //Si la pieza se mueve fuera del borde inferior
+                        tablero[y + dy]?.[x + dx] !== null 
+                        //Esta expresión verifica si la celda que la pieza intenta ocupar
+                        //En la posición (x+dx, y+dy) está ocupada por otra pieza
+                        //=true--> colisión
+                    )
+                )
+            );
+        }
+
+
+        /*........FUNCIÓN PARA COLOCAR UNA PIEZA EN EL TABLERO.......*/    
+        function posicionarPieza(pieza, x, y) {
+            pieza.forma.forEach((row, dy) => //Itera sobre las filas de la forma de la pieza
+                row.forEach((value, dx) => { //Itera sobre las columnas de cada fila
+                    if (value) tablero[y + dy][x + dx] = pieza.color;
+                })
+                //Si el valor es 1 (bloque está activo), entonces colocar
+                //la pieza en la posición del tablero
+            );
+        }
+    
+
+
+            /*........FUNCIÓN PARA ELIMINAR UNA PIEZA EN EL TABLERO.......*/                
+            function eliminarLinea() {
+            let lineasEliminadas = 0; //Inicializa las lineas eliminadas
+            for (let y = filas - 1; y >= 0; y--) {
+                //Recorre las filas del tablero desde abajo hacia arriba
+                //Verifica si hay filas completa
+                //tablero[y]--> fila tablero
+                //every(value=> value !== null), analiza cada valor de esa fila y verifica que estñe ocupado
+                if (tablero[y].every(value => value !== null)) {
+                    //Si la celda está ocupada:
+                    tablero.splice(y, 1); //En la posición de la fila especificada, elimina 1 fila
+                    tablero.unshift(Array(columnas).fill(null)); //Crea un array de columnas vacío que se llena con celdas vacías
+                    //con unshift se agrega ésta en la parte superior
+                    //columnas porque num elementos fila = cantidad columnas
+                    lineasEliminadas++; //Añade una línea eliminada
+                }
+            }
+            //Puntos según las líneas eliminadas
+            if (lineasEliminadas > 0) { //Si hay líneas eliminadas
+                puntuacion += lineasEliminadas * 100; //Son 100 puntos por cada línea eliminada
+                puntuacionElement.textContent = puntuacion; //Se escribe los puntos en puntuacionElement
+            }
+        }
+    
+        /*........FUNCIÓN PARA DIBUJAR TABLERO.......*/                
+        function dibujarTablero() {
+            tablero.forEach((row, y) => //Itera sobre las filas del tablero
+                row.forEach((value, x) => { //Itera sobre las columnas del tablero
+                    lienzo.fillStyle = value || "black"; //Si la celda está ocupada, pinta el color de
+                    //la pieza que lo ocupa, pero si está vacío, lo pinta negro
+                    lienzo.fillRect(x, y, 1, 1); //Con fillRect se dibuja un rectángulo de 1x1
+                })
+            );
+        }
+    
+        /*........FUNCIÓN PARA DIBUJAR PIEZA.......*/                
+        function dibujarPieza(pieza, x, y, context = lienzo) {
+            pieza.forma.forEach((row, dy) => //Itero sobre filas del tablero
+                row.forEach((value, dx) => { //Itero sobre columnas de tablero
+                    if (value) { //Si la celda está ocupada 
+                        context.fillStyle = pieza.color; //Pinta con el color de la propia pieza
+                        context.fillRect(x + dx, y + dy, 1, 1); //Dibuja un rectángulo de 1x1,
+                        //Con coordenadas (x,y), y dx,dy para ajustar su posición
+                    }
+                })
+            );
+        }
+
+
+        /*........FUNCIÓN PARA DIBUJAR PRÓXIMA PIEZA.......*/                
+        function dibujarProximaPieza() {
+            //Se limpia el canvas donde se dibuja esta proxima pieza
+            lienzoProximaFicha.clearRect(0, 0, canvasProximaFicha.width, canvasProximaFicha.height);
+    
+            lienzoProximaFicha.fillStyle = proximaPieza.color; //Pinta la pieza con su color definido
+            proximaPieza.forma.forEach((row, y) => //Itera sobre cada fila del tablero
+                row.forEach((value, x) => { //Itera sobre cada columna del tablero
+                    if (value) { //Si celda ocupada
+                        lienzoProximaFicha.fillRect(x * 30, y * 30, 30, 30); //En el lienzo de la próxima ficha,
+                        //se va a crear un rectánguli de esas esas dimensiones (30x30) en esa posición
+                    }
+                })
+            );
+        }
+    
+        //Listener cuando el usuario pulsa una tecla
+        document.addEventListener('keydown', (e) => {
+            if (e.key === "a") offsetX--; //Si presiona "a", se mueve a la izq
+            if (e.key === "d") offsetX++; //Si presiona "d", se mueve a la derecha
+            if (e.key === "s") offsetY++; //Si presiona "s", se mueve hacia abajo
+            if (e.key === "w") { 
+                const rotada = piezaActual.forma[0].map((_, i) => //Toma la primera fila y la convierte en
+                //primera columna de la matriz
+                    piezaActual.forma.map(row => row[i]).reverse() //Reversa las filas
+                );
+            //Si la pieza no colisiona en la nueva posicón--> la pieza rota
+            if (!chequearColisiones({ forma: rotada }, offsetX, offsetY)) {
+                    piezaActual.forma = rotada;
+                }
+            }
+    
+            //Si la pieza si colisiona en la nueva posicón--> se deshace movimiento
+            if (chequearColisiones(piezaActual, offsetX, offsetY)) {
+                if (e.key === "a") offsetX++;
+                if (e.key === "d") offsetX--;
+                if (e.key === "s") offsetY--;
+            }
+    
+            //Después movimiento, se vuelve a dibujar tablero y nueva posición
+            dibujarTablero();
+            dibujarPieza(piezaActual, offsetX, offsetY);
+        });
+    
+
+        /*........FUNCIÓN PARA REINICIAR JUEGO.......*/                
+        function reiniciarJuego() {
+            clearInterval(intervalo);  //Detiene intervalo activo
+            tablero.forEach(row => row.fill(null));  //Limpiar el tablero
+            puntuacion = 0; 
+            nivel = 1;
+            velocidad = 500;  //Resetear la velocidad a su valor inicial
+            puntuacionElement.textContent = puntuacion;
+            nivelElement.textContent = nivel;
+            jugar();  //Reinicia el juego
+        }
+    
+
+        /*........FUNCIÓN PARA AUMENTAR NIVEL.......*/                
+        function aumentarNivel() {
+            if (nivel < 4) { //Limitar hasta el nivel 4, y si es uno de esos niveles < 4
+                nivel++; //Aumenta el nivel
+                //Para aumentar la velocidad progresivamente
+                velocidad = Math.max(100, 500 - (nivel + 1) * 100);
+                nivelElement.textContent = nivel;
+                clearInterval(intervalo); //Detiene el intervalo anterior
+                intervalo = setInterval(actualizar, velocidad);  
+                //Crea nuevo intervalo con la nueba valocidad por cada aumento de nivel
+            }
+        }
+
+        /*........FUNCIÓN PARA FINALIZAR JUEGO.......*/                
+        function finalizarJuego() {
+            alert(`FIN DE LA PARTIDA, este juego ha sido desarrollado por Hidemi Claros Campos\nPuntuación: ${puntuacion}`);
+            reiniciarJuego();  //Cuando sale el alert, después se reinicia el juego
+        }
+    
+
+        /*........FUNCIÓN PARA ACTUALIZAR.......*/                
+        function actualizar() {
+            offsetY++; //La pieza se mueve hacia abajo
+            //Si la pieza colisiona, 
+            if (chequearColisiones(piezaActual, offsetX, offsetY)) {
+                offsetY--; //Retrocede una posición antes de la colisión
+                posicionarPieza(piezaActual, offsetX, offsetY); //Pieza se coloca en tablero
+                eliminarLinea(); //Elimina la la fila si está toda ocupada
+                piezaActual = proximaPieza;
+                proximaPieza = generarPieza(); //Se genera pieza que se guarda en próxima pieza
+                //Se posiciona la pieza en el centro horizontal y vert. del tablero
+                offsetX = 4; 
+                offsetY = 0;
+                dibujarProximaPieza(); 
+    
+                //Si la nueva pieza colisiona--> Fin juego
+                if (chequearColisiones(piezaActual, offsetX, offsetY)) {
+                    finalizarJuego();
+                }
+            }
+            //Se vuelve a dibujar el tablero actualizado y la pieza
+            //en su nueva posición
+            dibujarTablero();
+            dibujarPieza(piezaActual, offsetX, offsetY);
+        }
+    
+
+        /*........FUNCIÓN PARA JUGAR.......*/                
+        function jugar() {
+            piezaActual = generarPieza(); //Genera la pieza que va a caer
+            proximaPieza = generarPieza(); 
+            dibujarProximaPieza(); //Genera la pieza que va a caer
+            clearInterval(intervalo); //Evitar intervalos duplicados
+            intervalo = setInterval(actualizar, velocidad);  //Iniciar nuevo intervalo, según velocidad nivel
+        }
+    
+        //Llama a la función de aumentar nivel cada vez que se hace clic en el botón
+        botonAumentarNivel.addEventListener('click', aumentarNivel);
+    
+        jugar();   
+    </script>
+</body>
+</html>
